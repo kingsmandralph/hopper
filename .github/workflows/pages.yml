@@ -1,0 +1,52 @@
+name: Deploy to GitHub Pages
+
+# Enables GitHub Pages (first run) and publishes the site on every push to main.
+# Serves the repo root as static files — no Jekyll — so .well-known/assetlinks.json
+# is published as-is (needed later for the Android app's domain verification).
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Stage site files
+        run: |
+          mkdir -p _site
+          # copy everything except VCS/workflow/build cruft into the publish dir
+          rsync -a --exclude='.git' --exclude='.github' --exclude='_site' \
+            --exclude='twa-manifest.json' --exclude='README.md' ./ _site/
+          touch _site/.nojekyll
+          ls -la _site _site/.well-known
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
