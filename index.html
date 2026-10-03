@@ -1,0 +1,739 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#1a1033">
+<meta name="description" content="Hopper — a click-to-jump arcade game. Tap to leap, double-tap to front flip, triple-tap for a backflip into a front flip.">
+<title>Hopper</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+  /* Layout: single-screen arcade stage — sky band up top, ground strip at base,
+     score + controls floating over a committed dusk-arcade palette (single theme by design). */
+  :root {
+    --sky-top: #1a1033;
+    --sky-mid: #3b1f5e;
+    --sky-low: #7d3a6b;
+    --ground: #2a1840;
+    --ground-line: #ff9e57;
+    --hero: #ffd166;
+    --hero-shade: #e8a13a;
+    --obstacle: #4de2c0;
+    --obstacle-shade: #1f9e86;
+    --ink: #fdf3e7;
+    --ink-dim: #c9b7d6;
+    --danger: #ff5d73;
+    --panel: rgba(18, 10, 36, 0.72);
+    --display: "Bungee", ui-sans-serif, system-ui, sans-serif;
+    --body: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    margin: 0;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  body {
+    background: var(--sky-top);
+    color: var(--ink);
+    font-family: var(--body);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding-block: 16px;
+    padding-inline: 16px;
+    gap: 14px;
+    user-select: none;
+    -webkit-user-select: none;
+    overflow: hidden;
+  }
+
+  .masthead {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .masthead h1 {
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: clamp(1.6rem, 6vw, 2.4rem);
+    margin: 0;
+    letter-spacing: 0.04em;
+    color: var(--hero);
+    text-shadow: 0 2px 0 var(--hero-shade), 0 0 18px rgba(255, 209, 102, 0.35);
+  }
+  .masthead p {
+    margin: 0;
+    font-size: 0.78rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+
+  .stage {
+    position: relative;
+    width: min(680px, 100%);
+    aspect-ratio: 16 / 9;
+    max-width: 100%;
+    border-radius: 16px;
+    overflow: hidden;
+    cursor: pointer;
+    background:
+      linear-gradient(to bottom,
+        var(--sky-top) 0%,
+        var(--sky-mid) 42%,
+        var(--sky-low) 72%,
+        var(--sky-low) 78%,
+        var(--ground) 78%,
+        var(--ground) 100%);
+    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.06), 0 18px 40px rgba(0, 0, 0, 0.45);
+    touch-action: manipulation;
+  }
+
+  /* ground seam */
+  .stage::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0;
+    top: 78%;
+    height: 3px;
+    background: var(--ground-line);
+    box-shadow: 0 0 12px var(--ground-line);
+    opacity: 0.85;
+  }
+
+  .scanlines {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.025) 0px,
+      rgba(255,255,255,0.025) 1px,
+      transparent 1px,
+      transparent 4px);
+    z-index: 6;
+  }
+
+  /* drifting stars */
+  .star {
+    position: absolute;
+    width: 2px; height: 2px;
+    background: var(--ink);
+    border-radius: 50%;
+    opacity: 0.5;
+  }
+
+  .hero {
+    position: absolute;
+    left: 14%;
+    bottom: 22%;
+    width: 11%;
+    aspect-ratio: 1;
+    z-index: 4;
+    will-change: transform;
+  }
+  .hero svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .hero #body { transform-box: fill-box; transform-origin: 50% 58%; }
+  .hero .foot { transform-box: fill-box; transform-origin: center; }
+  .hero.running .foot.left  { animation: step 0.26s linear infinite; }
+  .hero.running .foot.right { animation: step 0.26s linear infinite; animation-delay: 0.13s; }
+  @keyframes step {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    50%      { transform: translateY(-16%) rotate(-10deg); }
+  }
+
+  .obstacle {
+    position: absolute;
+    bottom: 22%;
+    width: 7%;
+    height: 16%;
+    z-index: 3;
+    background: linear-gradient(to bottom, var(--obstacle), var(--obstacle-shade));
+    border-radius: 4px 4px 2px 2px;
+    box-shadow: 0 0 14px rgba(77, 226, 192, 0.4);
+    will-change: left;
+  }
+  .obstacle::before {
+    content: "";
+    position: absolute;
+    inset: 18% 30% auto 30%;
+    height: 8%;
+    background: rgba(255,255,255,0.5);
+    border-radius: 2px;
+  }
+
+  .hud {
+    position: absolute;
+    top: 12px; left: 12px; right: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    z-index: 7;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
+  .hud .chip {
+    background: var(--panel);
+    backdrop-filter: blur(6px);
+    border-radius: 10px;
+    padding: 6px 11px;
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    line-height: 1.2;
+  }
+  .hud .chip b {
+    display: block;
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: 1.3rem;
+    letter-spacing: 0.02em;
+    color: var(--ink);
+  }
+  .hud .chip.best b { color: var(--hero); }
+  .hud .chip.strikes { text-align: center; }
+  .dots { display: flex; gap: 5px; justify-content: center; margin-top: 4px; }
+  .dots i {
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: var(--obstacle);
+    box-shadow: 0 0 6px var(--obstacle);
+  }
+  .dots i.spent {
+    background: transparent;
+    box-shadow: none;
+    border: 1.5px solid var(--ink-dim);
+    opacity: 0.55;
+  }
+  .hero.hit { animation: heroHit 0.42s ease-in-out; }
+  @keyframes heroHit {
+    0%, 100% { filter: none; opacity: 1; }
+    20%, 60% { filter: brightness(1.9) saturate(1.8); }
+    40%      { opacity: 0.3; }
+  }
+
+  .overlay {
+    position: absolute; inset: 0;
+    z-index: 8;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    text-align: center;
+    padding: 20px;
+    background: rgba(12, 6, 26, 0.72);
+    backdrop-filter: blur(3px);
+  }
+  .overlay h2 {
+    font-family: var(--display);
+    font-weight: 400;
+    margin: 0;
+    font-size: clamp(1.4rem, 5vw, 2rem);
+    letter-spacing: 0.03em;
+  }
+  .overlay h2.dead { color: var(--danger); text-shadow: 0 0 20px rgba(255,93,115,0.5); }
+  .overlay p {
+    margin: 0;
+    max-width: 34ch;
+    font-size: 0.9rem;
+    color: var(--ink-dim);
+    line-height: 1.5;
+  }
+  .overlay .cue {
+    font-family: var(--display);
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    color: var(--hero);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 0.45; } 50% { opacity: 1; } }
+
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px 22px;
+    width: min(680px, 100%);
+  }
+  .controls .group {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .controls .lbl {
+    font-size: 0.68rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .controls .opts { display: flex; gap: 6px; }
+  .opts button {
+    font-family: var(--body);
+    font-size: 0.78rem;
+    color: var(--ink-dim);
+    background: var(--panel);
+    border: 1.5px solid transparent;
+    border-radius: 9px;
+    padding: 6px 11px;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+  }
+  .opts button:hover { color: var(--ink); }
+  .opts button[aria-pressed="true"] {
+    color: var(--ink);
+    border-color: var(--ink-dim);
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .opts.swatches button {
+    width: 30px; height: 30px;
+    padding: 0;
+    border-radius: 50%;
+    border: 2.5px solid transparent;
+  }
+  .opts.swatches button[aria-pressed="true"] {
+    border-color: var(--ink);
+    box-shadow: 0 0 0 2px var(--panel), 0 0 10px currentColor;
+  }
+  .sw-yellow { background: #ffd166; }
+  .sw-red    { background: #ff6b6b; }
+  .sw-blue   { background: #5aa9ff; }
+  .opts button:focus-visible { outline: 2px solid var(--hero); outline-offset: 2px; }
+
+  .foot {
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    text-align: center;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .overlay .cue { animation: none; opacity: 1; }
+    .hero.running .foot.left,
+    .hero.running .foot.right { animation: none; }
+  }
+</style>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=Space+Grotesk:wght@400;500;600&display=swap">
+</head>
+<body>
+
+<div class="masthead">
+  <h1>Hopper</h1>
+  <p>Click the little guy to jump</p>
+</div>
+
+<div class="stage" id="stage" aria-label="Game stage — click to make the character jump">
+  <div class="scanlines"></div>
+
+  <div class="hud">
+    <div class="chip">Score<b id="score">0</b></div>
+    <div class="chip strikes">Streak<div class="dots" id="dots"><i></i><i></i><i></i></div></div>
+    <div class="chip best">Best<b id="best">0</b></div>
+  </div>
+
+  <div class="hero" id="hero">
+    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+      <ellipse cx="50" cy="92" rx="24" ry="5" fill="rgba(0,0,0,0.3)" id="shadow"/>
+      <g id="body"></g>
+    </svg>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <h2 id="overlayTitle">Ready?</h2>
+    <p id="overlayText">Obstacles slide in from the right. Click the character (or anywhere on the stage) the moment one gets close, and it'll leap over. You can take two hits — three obstacles in a row ends the run, and clearing one resets your streak.</p>
+    <div class="cue">Click to start</div>
+  </div>
+</div>
+
+<div class="controls">
+  <div class="group">
+    <span class="lbl">Character</span>
+    <div class="opts" id="charOpts">
+      <button data-char="blob" aria-pressed="true">Blob</button>
+      <button data-char="bunny" aria-pressed="false">Bunny</button>
+      <button data-char="bot" aria-pressed="false">Bot</button>
+    </div>
+  </div>
+  <div class="group">
+    <span class="lbl">Color</span>
+    <div class="opts swatches" id="colorOpts">
+      <button class="sw-yellow" data-color="yellow" aria-pressed="true" aria-label="Yellow"></button>
+      <button class="sw-red" data-color="red" aria-pressed="false" aria-label="Red"></button>
+      <button class="sw-blue" data-color="blue" aria-pressed="false" aria-label="Blue"></button>
+    </div>
+  </div>
+</div>
+
+<div class="foot">Space / tap also jumps · double-tap to flip</div>
+
+<script>
+(function () {
+  const stage = document.getElementById('stage');
+  const hero = document.getElementById('hero');
+  const bodyG = document.getElementById('body');
+  const shadow = document.getElementById('shadow');
+  const scoreEl = document.getElementById('score');
+  const bestEl = document.getElementById('best');
+  const overlay = document.getElementById('overlay');
+  const overlayTitle = document.getElementById('overlayTitle');
+  const overlayText = document.getElementById('overlayText');
+
+  const GROUND = 0.22;        // hero bottom as fraction of stage height (matches CSS)
+  const JUMP_MS = 560;        // airtime
+  const JUMP_PEAK = 0.52;     // fraction of stage height at apex (lowered)
+
+  let best = 0;
+  try { best = parseInt(localStorage.getItem('hopper_best') || '0', 10) || 0; } catch (e) {}
+  bestEl.textContent = best;
+
+  // ---- characters & colors ----
+  const COLORS = {
+    yellow: { hero: '#ffd166', shade: '#e8a13a' },
+    red:    { hero: '#ff6b6b', shade: '#d64545' },
+    blue:   { hero: '#5aa9ff', shade: '#2f6fd6' }
+  };
+  const face = `
+      <circle cx="43" cy="50" r="6" fill="#2a1840"/>
+      <circle cx="57" cy="50" r="6" fill="#2a1840"/>
+      <circle cx="45" cy="48" r="2" fill="#fff"/>
+      <circle cx="59" cy="48" r="2" fill="#fff"/>
+      <path d="M42 62 Q50 68 58 62" stroke="#2a1840" stroke-width="2.5" fill="none" stroke-linecap="round"/>`;
+  const CHARACTERS = {
+    blob: () => `
+      <rect class="foot left"  x="34" y="72" width="12" height="10" rx="4" fill="var(--hero-shade)"/>
+      <rect class="foot right" x="54" y="72" width="12" height="10" rx="4" fill="var(--hero-shade)"/>
+      <rect x="30" y="34" width="40" height="42" rx="14" fill="var(--hero)" stroke="var(--hero-shade)" stroke-width="2.5"/>
+      ${face}
+      <line x1="50" y1="34" x2="50" y2="22" stroke="var(--hero-shade)" stroke-width="2.5"/>
+      <circle cx="50" cy="19" r="4" fill="var(--obstacle)"/>`,
+    bunny: () => `
+      <rect class="foot left"  x="33" y="74" width="14" height="8" rx="4" fill="var(--hero-shade)"/>
+      <rect class="foot right" x="53" y="74" width="14" height="8" rx="4" fill="var(--hero-shade)"/>
+      <ellipse cx="40" cy="22" rx="5" ry="15" fill="var(--hero)" stroke="var(--hero-shade)" stroke-width="2.5"/>
+      <ellipse cx="60" cy="22" rx="5" ry="15" fill="var(--hero)" stroke="var(--hero-shade)" stroke-width="2.5"/>
+      <ellipse cx="40" cy="24" rx="2" ry="9" fill="#ff9ec4"/>
+      <ellipse cx="60" cy="24" rx="2" ry="9" fill="#ff9ec4"/>
+      <rect x="30" y="36" width="40" height="40" rx="18" fill="var(--hero)" stroke="var(--hero-shade)" stroke-width="2.5"/>
+      ${face}
+      <circle cx="50" cy="66" r="2.5" fill="#ff9ec4"/>`,
+    bot: () => `
+      <rect class="foot left"  x="34" y="74" width="12" height="9" rx="2" fill="var(--hero-shade)"/>
+      <rect class="foot right" x="54" y="74" width="12" height="9" rx="2" fill="var(--hero-shade)"/>
+      <rect x="30" y="36" width="40" height="40" rx="6" fill="var(--hero)" stroke="var(--hero-shade)" stroke-width="2.5"/>
+      <rect x="26" y="48" width="4" height="14" rx="2" fill="var(--hero-shade)"/>
+      <rect x="70" y="48" width="4" height="14" rx="2" fill="var(--hero-shade)"/>
+      <rect x="37" y="45" width="26" height="14" rx="3" fill="#2a1840"/>
+      <circle cx="45" cy="52" r="3" fill="var(--obstacle)"/>
+      <circle cx="55" cy="52" r="3" fill="var(--obstacle)"/>
+      <path d="M43 67 H57" stroke="#2a1840" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="50" y1="36" x2="50" y2="26" stroke="var(--hero-shade)" stroke-width="2.5"/>
+      <circle cx="50" cy="23" r="4" fill="var(--obstacle)"/>`
+  };
+
+  let character = 'blob';
+  let color = 'yellow';
+  try {
+    character = localStorage.getItem('hopper_char') || 'blob';
+    color = localStorage.getItem('hopper_color') || 'yellow';
+  } catch (e) {}
+  if (!CHARACTERS[character]) character = 'blob';
+  if (!COLORS[color]) color = 'yellow';
+
+  function applyColor(c) {
+    color = c;
+    document.documentElement.style.setProperty('--hero', COLORS[c].hero);
+    document.documentElement.style.setProperty('--hero-shade', COLORS[c].shade);
+    try { localStorage.setItem('hopper_color', c); } catch (e) {}
+  }
+  function applyCharacter(name) {
+    character = name;
+    bodyG.innerHTML = CHARACTERS[name]();
+    try { localStorage.setItem('hopper_char', name); } catch (e) {}
+  }
+  function wirePicker(container, attr, onPick) {
+    container.querySelectorAll('button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        container.querySelectorAll('button').forEach(function (b) {
+          b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
+        });
+        onPick(btn.getAttribute(attr));
+      });
+      // reflect saved selection
+      if (btn.getAttribute(attr) === (attr === 'data-char' ? character : color)) {
+        container.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', 'false'); });
+        btn.setAttribute('aria-pressed', 'true');
+      }
+    });
+  }
+  wirePicker(document.getElementById('charOpts'), 'data-char', applyCharacter);
+  wirePicker(document.getElementById('colorOpts'), 'data-color', applyColor);
+  applyColor(color);
+  applyCharacter(character);
+
+  let state = 'idle';         // idle | playing | dead
+  let score = 0;
+  let scored = false;
+  let obstacleHit = false;    // whether the current obstacle has already clipped the hero
+  let hitStreak = 0;          // consecutive obstacles hit
+  const MAX_HITS = 3;         // 3 in a row ends the run
+  const dotsEl = document.getElementById('dots');
+  let jumpStart = 0;
+  let jumping = false;
+  let jumpDur = JUMP_MS;
+  let flipAnim = null;
+  let obstacleX = 1.15;       // position as fraction of stage width (right edge = 1)
+  const BASE_SPEED = 0.012;   // slow starting pace
+  const RAMP_AFTER = 6;       // clears before it starts getting faster
+  let speed = BASE_SPEED;     // fraction of width per frame-ish
+  let lastTs = 0;
+  let rafId = 0;
+
+  // sprinkle stars once
+  for (let i = 0; i < 26; i++) {
+    const s = document.createElement('div');
+    s.className = 'star';
+    s.style.left = (Math.random() * 100) + '%';
+    s.style.top = (Math.random() * 70) + '%';
+    s.style.opacity = (0.25 + Math.random() * 0.5).toFixed(2);
+    s.style.transform = `scale(${(0.6 + Math.random() * 1.4).toFixed(2)})`;
+    stage.insertBefore(s, stage.firstChild.nextSibling);
+  }
+
+  const obstacle = document.createElement('div');
+  obstacle.className = 'obstacle';
+  obstacle.hidden = true;
+  stage.appendChild(obstacle);
+
+  function updateStrikes() {
+    const dots = dotsEl.children;
+    for (let i = 0; i < dots.length; i++) {
+      dots[i].classList.toggle('spent', i < hitStreak);
+    }
+  }
+
+  function flashHit() {
+    hero.classList.remove('hit');
+    void hero.offsetWidth; // restart the animation
+    hero.classList.add('hit');
+    stage.animate(
+      [{ transform: 'translateX(-3px)' }, { transform: 'translateX(3px)' }, { transform: 'translateX(0)' }],
+      { duration: 150 }
+    );
+  }
+
+  function reset() {
+    score = 0; scored = false;
+    obstacleHit = false;
+    hitStreak = 0;
+    updateStrikes();
+    speed = BASE_SPEED;
+    obstacleX = 1.15;
+    jumping = false;
+    if (flipAnim) { flipAnim.cancel(); flipAnim = null; }
+    bodyG.style.transform = '';
+    scoreEl.textContent = '0';
+    setHeroHeight(0);
+    obstacle.style.left = (obstacleX * 100) + '%';
+    obstacle.hidden = false;
+  }
+
+  function start() {
+    reset();
+    state = 'playing';
+    overlay.hidden = true;
+    lastTs = 0;
+    rafId = requestAnimationFrame(loop);
+  }
+
+  function setHeroHeight(h) {
+    // h is 0..1 fraction of stage height added above ground
+    const px = -h * stage.clientHeight * JUMP_PEAK;
+    hero.style.transform = `translateY(${px}px)`;
+    // squash the shadow as it rises
+    const shrink = 1 - h * 0.7;
+    shadow.setAttribute('rx', (24 * shrink).toFixed(1));
+    shadow.setAttribute('opacity', (0.3 * shrink).toFixed(2));
+  }
+
+  function launchJump(dur) {
+    jumping = true;
+    jumpDur = dur;
+    jumpStart = performance.now();
+  }
+
+  function jump() {
+    if (jumping) return;
+    launchJump(JUMP_MS);
+  }
+
+  function doFlip(kind) {
+    // kind: 'front' (one forward spin) | 'backfront' (back spin, then front spin)
+    if (flipAnim) flipAnim.cancel();
+    const dur = kind === 'front' ? 580 : 860;
+    launchJump(dur);
+    const frames = kind === 'front'
+      ? [{ transform: 'rotate(0deg)' }, { transform: 'rotate(360deg)' }]
+      : [{ offset: 0, transform: 'rotate(0deg)' },
+         { offset: 0.5, transform: 'rotate(-360deg)' },
+         { offset: 1, transform: 'rotate(0deg)' }];
+    flipAnim = bodyG.animate(frames, { duration: dur, easing: 'ease-out' });
+    flipAnim.onfinish = function () { bodyG.style.transform = ''; flipAnim = null; };
+  }
+
+  function heroHeightAt(t) {
+    // parabola: 0 -> 1 -> 0 over the current jump duration
+    const p = Math.min(t / jumpDur, 1);
+    return 4 * p * (1 - p);
+  }
+
+  function die() {
+    state = 'dead';
+    hero.classList.remove('running');
+    cancelAnimationFrame(rafId);
+    if (score > best) {
+      best = score;
+      bestEl.textContent = best;
+      try { localStorage.setItem('hopper_best', String(best)); } catch (e) {}
+    }
+    overlayTitle.textContent = 'Bonk!';
+    overlayTitle.className = 'dead';
+    overlayText.textContent = `Three in a row — that's the run. You cleared ${score} ${score === 1 ? 'obstacle' : 'obstacles'}. ` +
+      (score >= best && score > 0 ? 'New best!' : 'Clear one to reset your streak next time.');
+    overlay.querySelector('.cue').textContent = 'Click to retry';
+    overlay.hidden = false;
+    stage.animate(
+      [{ transform: 'translateX(-4px)' }, { transform: 'translateX(4px)' }, { transform: 'translateX(0)' }],
+      { duration: 160, iterations: 2 }
+    );
+  }
+
+  function loop(ts) {
+    if (!lastTs) lastTs = ts;
+    const dt = Math.min((ts - lastTs) / 16.67, 2.5); // normalize to ~60fps steps
+    lastTs = ts;
+
+    // advance obstacle
+    obstacleX -= speed * dt;
+
+    // jump physics
+    let h = 0;
+    if (jumping) {
+      const t = ts - jumpStart;
+      h = heroHeightAt(t);
+      if (t >= jumpDur) { jumping = false; h = 0; }
+    }
+    setHeroHeight(h);
+    hero.classList.toggle('running', h < 0.02); // legs run only while grounded
+
+    // scoring: obstacle passed the hero
+    const heroCenter = 0.14 + 0.055; // left% + half width
+    if (!scored && obstacleX + 0.07 < heroCenter) {
+      scored = true;
+      if (!obstacleHit) {
+        // cleared cleanly — score it and reset the hit streak
+        score++;
+        scoreEl.textContent = score;
+        hitStreak = 0;
+        updateStrikes();
+        if (score > RAMP_AFTER) {
+          speed = Math.min(speed + 0.0012, 0.045); // ramp only after 6 clears
+        }
+      }
+    }
+
+    // recycle
+    if (obstacleX < -0.12) {
+      obstacleX = 1.05 + Math.random() * 0.35;
+      scored = false;
+      obstacleHit = false;
+    }
+    obstacle.style.left = (obstacleX * 100) + '%';
+
+    // collision: horizontal overlap near hero AND hero low enough
+    const obLeft = obstacleX;
+    const obRight = obstacleX + 0.07;
+    const hLeft = 0.14;
+    const hRight = 0.14 + 0.11;
+    const overlapping = obRight > hLeft + 0.015 && obLeft < hRight - 0.015;
+    if (overlapping && h < 0.42 && !obstacleHit) {
+      obstacleHit = true;      // this obstacle counts once
+      hitStreak++;
+      updateStrikes();
+      flashHit();
+      if (hitStreak >= MAX_HITS) {
+        die();
+        return;
+      }
+    }
+
+    rafId = requestAnimationFrame(loop);
+  }
+
+  // input with tap counting: 1 = jump, 2 = front flip, 3 = backflip + front flip
+  const TAP_WINDOW = 280; // ms between taps to count as a combo
+  let tapCount = 0;
+  let lastTap = 0;
+
+  function onInput() {
+    if (state === 'idle' || state === 'dead') { start(); tapCount = 0; return; }
+    const now = performance.now();
+    tapCount = (now - lastTap < TAP_WINDOW) ? tapCount + 1 : 1;
+    lastTap = now;
+    if (tapCount === 1) {
+      jump();
+    } else if (tapCount === 2) {
+      doFlip('front');
+    } else {
+      doFlip('backfront');
+      tapCount = 0; // cap the combo
+    }
+  }
+
+  stage.addEventListener('pointerdown', function (e) {
+    e.preventDefault();
+    onInput();
+  });
+  window.addEventListener('keydown', function (e) {
+    if (e.code === 'Space' || e.code === 'ArrowUp') {
+      e.preventDefault();
+      onInput();
+    }
+  });
+
+  // pause/resume on visibility so it doesn't "die" while backgrounded
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden && state === 'playing') {
+      cancelAnimationFrame(rafId);
+    } else if (!document.hidden && state === 'playing') {
+      lastTs = 0;
+      rafId = requestAnimationFrame(loop);
+    }
+  });
+
+  // idle resting state
+  setHeroHeight(0);
+})();
+
+// --- PWA service worker registration (offline support) ---
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js').catch(function () { /* offline-first still works online */ });
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+{
+  "name": "Hopper",
+  "short_name": "Hopper",
+  "description": "A click-to-jump arcade game. Tap to leap, double-tap to front flip, triple-tap for a backflip into a front flip.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#1a1033",
+  "theme_color": "#1a1033",
+  "categories": ["games"],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

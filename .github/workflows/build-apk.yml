@@ -1,0 +1,99 @@
+name: Build Android APK
+
+# Builds a signed Hopper APK with Bubblewrap on GitHub's servers.
+# Runs on every push to main (after the TWA project exists) and on demand.
+#
+# One-time setup before the first successful build — add these repo Secrets
+# (Settings -> Secrets and variables -> Actions -> New repository secret):
+#   KEYSTORE_BASE64        base64 of your android.keystore  (base64 -w0 android.keystore)
+#   KEYSTORE_PASSWORD      the store password you set when generating the key
+#   KEY_PASSWORD           the key password (often the same as the store password)
+#   KEY_ALIAS              the alias you chose (e.g. "android")
+#
+# Until those secrets exist, the build step is skipped and the workflow just
+# validates the project. Generate the keystore locally once with:
+#   keytool -genkeypair -v -keystore android.keystore -alias android \
+#     -keyalg RSA -keysize 2048 -validity 10000
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install Bubblewrap CLI
+        run: npm install -g @bubblewrap/cli
+
+      - name: Check for signing secrets
+        id: secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "have_keystore=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_keystore=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No KEYSTORE_BASE64 secret set yet — skipping APK build. Add the signing secrets described in build-apk.yml to enable it."
+          fi
+
+      - name: Restore keystore
+        if: steps.secrets.outputs.have_keystore == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE_BASE64" | base64 -d > "$GITHUB_WORKSPACE/android.keystore"
+
+      - name: Initialise Bubblewrap project
+        if: steps.secrets.outputs.have_keystore == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/twa"
+          cp "$GITHUB_WORKSPACE/twa-manifest.json" "$RUNNER_TEMP/twa/twa-manifest.json"
+          cp "$GITHUB_WORKSPACE/android.keystore" "$RUNNER_TEMP/twa/android.keystore"
+          cd "$RUNNER_TEMP/twa"
+          # point the signing key at the restored keystore
+          bubblewrap update --skipVersionUpgrade || true
+
+      - name: Build signed APK
+        if: steps.secrets.outputs.have_keystore == 'true'
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          cd "$RUNNER_TEMP/twa"
+          bubblewrap build \
+            --skipPwaValidation \
+            --signingKeyPath="$RUNNER_TEMP/twa/android.keystore" \
+            --signingKeyAlias="$KEY_ALIAS" <<EOF
+          $KEYSTORE_PASSWORD
+          $KEY_PASSWORD
+          EOF
+
+      - name: Upload APK artifact
+        if: steps.secrets.outputs.have_keystore == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: hopper-apk
+          path: |
+            ${{ runner.temp }}/twa/app-release-signed.apk
+            ${{ runner.temp }}/twa/app-release-bundle.aab
+          if-no-files-found: warn
