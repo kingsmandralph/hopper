@@ -1,6 +1,6 @@
 /* Hopper service worker — cache-first offline support.
    Bump CACHE whenever you change the files below so clients pick up updates. */
-const CACHE = 'hopper-v1';
+const CACHE = 'hopper-v2';
 const ASSETS = [
   './',
   './index.html',
